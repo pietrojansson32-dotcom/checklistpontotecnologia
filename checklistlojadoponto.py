@@ -6,7 +6,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 
-import pyautogui
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel
 from selenium import webdriver
@@ -33,7 +32,7 @@ logger = logging.getLogger(__name__)
 # --- INSTÂNCIA FASTAPI ---
 app = FastAPI(
     title="Checklist Loja do Ponto - Autodetecção e Automação",
-    description="API com detecção automática do modelo do equipamento.",
+    description="API para automação de equipamentos com detecção automática do modelo.",
     version="2.0.0",
 )
 
@@ -45,13 +44,16 @@ class AutomationRequest(BaseModel):
     image_name: Optional[str] = "WIN_20260811_14_48_02_Pro.jpg"
 
 
+# --- CONFIGURAÇÃO DO CHROME PARA SERVIDORES (HEADLESS) ---
 def get_chrome_driver():
     options = Options()
-    options.add_argument("--start-maximized")
+    options.add_argument("--headless=new")  # Necessário para servidores sem interface gráfica
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
     options.add_argument("--ignore-certificate-errors")
     options.add_argument("--allow-insecure-localhost")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
 
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
@@ -68,27 +70,23 @@ def identificar_equipamento(driver, url: str) -> str:
         page_source = driver.page_source.lower()
         title = driver.title.lower()
 
-        # Checagem Control iD
         if "control id" in page_source or "controlid" in page_source or "idsecure" in page_source:
             logger.info(f"🔍 [{url}] Equipamento identificado: Control iD")
             return "control_id"
 
-        # Checagem Elite 40
         if "elite" in page_source or "elite 40" in page_source or "elite40" in title:
             logger.info(f"🔍 [{url}] Equipamento identificado: Elite 40")
             return "elite40"
 
-        # Checagem Facial / Modo Ponto
         if "definir novas credenciais" in page_source or "configurações faciais" in page_source or "modo ponto" in page_source:
             logger.info(f"🔍 [{url}] Equipamento identificado: Facial / Modo Ponto")
             return "foto_modo_ponto"
 
-        # Padrão caso não encontre palavra-chave exata
-        logger.warning(f"⚠️ [{url}] Não foi possível identificar com precisão. Assumindo fluxo genérico/Control iD.")
+        logger.warning(f"⚠️ [{url}] Não foi possível identificar com precisão. Assumindo fluxo Control iD.")
         return "control_id"
 
     except Exception as e:
-        logger.error(f"❌ Erro ao tentar identificar equipamento em {url}: {e}")
+        logger.error(f"❌ Erro ao identificar equipamento em {url}: {e}")
         return "desconhecido"
 
 
@@ -132,7 +130,7 @@ def preencher_campo_texto(driver, elemento, texto):
         logger.warning(f"Erro em campo texto: {e}")
 
 
-# --- FLUXOS DE EXECUÇÃO ---
+# --- FLUXO 1: CONTROL ID ---
 def executar_fluxo_control_id(driver, ip: str):
     url_base = ip if ip.startswith(("http://", "https://")) else f"http://{ip}"
     CPF_USUARIO = "15366117941"
@@ -212,6 +210,7 @@ def executar_fluxo_control_id(driver, ip: str):
     driver.execute_script("arguments[0].click();", btn_salvar_user)
 
 
+# --- FLUXO 2: FOTO & MODO PONTO ---
 def executar_fluxo_foto_modo_ponto(driver, ip: str, image_name: str):
     url = f"http://{ip}" if not ip.startswith("http") else ip
     wait = WebDriverWait(driver, 15)
@@ -262,17 +261,14 @@ def executar_fluxo_foto_modo_ponto(driver, ip: str, image_name: str):
     codigo.send_keys("999999")
     driver.find_element(By.XPATH, "//label[contains(., 'Nome')]/following::input[1]").send_keys("Teste Ponto")
 
+    # UPLOAD NATIVO VIA SELENIUM (Sem PyAutoGUI)
     try:
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Arquivos' or text()='Arquivo' or text()='Examinar' or text()='Selecionar' or contains(@class, 'upload')]"))).click()
-    except Exception:
+        caminho_imagem = os.path.abspath(image_name)
         file_input = driver.find_element(By.XPATH, "//input[@type='file']")
-        driver.execute_script("arguments[0].click();", file_input)
-
-    time.sleep(1.5)
-    pyautogui.write(image_name)
-    time.sleep(1)
-    pyautogui.press("enter")
-    time.sleep(1.5)
+        file_input.send_keys(caminho_imagem)
+        time.sleep(1.5)
+    except Exception as ex_upload:
+        logger.warning(f"Erro no upload da foto: {ex_upload}")
 
     driver.find_element(By.XPATH, "//*[text()='Salvar']").click()
     time.sleep(1)
@@ -315,6 +311,7 @@ def executar_fluxo_foto_modo_ponto(driver, ip: str, image_name: str):
     wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='ok' or text()='OK' or text()='Ok']"))).click()
 
 
+# --- FLUXO 3: ELITE 40 ---
 def executar_fluxo_elite40(driver, ip: str):
     url = f"http://{ip}" if not ip.startswith(("http://", "https://")) else ip
     driver.get(url)
@@ -368,29 +365,31 @@ def processar_ip_automatico(ip: str, image_name: str):
         tipo_equipamento = identificar_equipamento(driver, url)
 
         if tipo_equipamento == "control_id":
-            logger.info(f"▶️ Executando fluxo Control iD para o IP {ip}")
+            logger.info(f"▶️ Executando Control iD para o IP {ip}")
             executar_fluxo_control_id(driver, ip)
         elif tipo_equipamento == "foto_modo_ponto":
-            logger.info(f"▶️ Executando fluxo Foto/Modo Ponto para o IP {ip}")
+            logger.info(f"▶️ Executando Foto/Modo Ponto para o IP {ip}")
             executar_fluxo_foto_modo_ponto(driver, ip, image_name)
         elif tipo_equipamento == "elite40":
-            logger.info(f"▶️ Executando fluxo Elite 40 para o IP {ip}")
+            logger.info(f"▶️ Executando Elite 40 para o IP {ip}")
             executar_fluxo_elite40(driver, ip)
-        else:
-            logger.error(f"❌ Não foi possível determinar o script correto para o IP {ip}")
 
-        logger.info(f"✅ [{ip}] Processamento automatizado finalizado com sucesso!")
+        logger.info(f"✅ [{ip}] Automação concluída!")
     except Exception as e:
-        logger.error(f"❌ Erro durante o processamento do IP {ip}: {e}")
+        logger.error(f"❌ Erro durante automação do IP {ip}: {e}")
     finally:
         if driver:
             driver.quit()
 
 
-# --- ENDPOINT DE AUTODETECÇÃO ---
+# --- ENDPOINTS DA API ---
+@app.get("/")
+def read_root():
+    return {"status": "online", "message": "API Ativa e Pronta para Autodetecção"}
+
+
 @app.post("/api/automacao/auto")
 def api_run_autodetect(payload: AutomationRequest):
-    """Recebe apenas a lista de IPs e decide sozinho qual automação rodar para cada um."""
     if not payload.ips:
         raise HTTPException(status_code=400, detail="Lista de IPs vazia.")
 
@@ -399,7 +398,7 @@ def api_run_autodetect(payload: AutomationRequest):
 
     return {
         "status": "iniciado",
-        "message": f"Autodetecção e automação iniciadas em segundo plano para os IPs: {payload.ips}",
+        "message": f"Autodetecção e automação disparadas para os IPs: {payload.ips}",
     }
 
 
