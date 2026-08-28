@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Checklist Loja do Ponto - Autodetecção e Automação",
     description="API para automação de equipamentos com detecção automática do modelo.",
-    version="2.1.0",
+    version="2.2.0",
 )
 
 executor = ThreadPoolExecutor(max_workers=10)
@@ -392,20 +392,79 @@ def read_root():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Checklist Loja do Ponto - Painel</title>
         <style>
-            body { font-family: Arial, sans-serif; background-color: #0d1117; color: #c9d1d9; text-align: center; padding: 50px; }
-            .card { background-color: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 30px; display: inline-block; max-width: 600px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-            h1 { color: #58a6ff; }
-            .status { background-color: #238636; color: white; padding: 8px 15px; border-radius: 20px; font-weight: bold; display: inline-block; margin: 15px 0; }
-            p { color: #8b949e; line-height: 1.5; }
+            body { font-family: Arial, sans-serif; background-color: #0d1117; color: #c9d1d9; text-align: center; padding: 30px; }
+            .card { background-color: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 25px; display: inline-block; max-width: 700px; width: 100%; box-shadow: 0 4px 10px rgba(0,0,0,0.5); text-align: left; }
+            h1 { color: #58a6ff; text-align: center; font-size: 24px; }
+            .status { background-color: #238636; color: white; padding: 6px 12px; border-radius: 20px; font-weight: bold; display: inline-block; margin: 10px 0; font-size: 14px; }
+            .status-container { text-align: center; }
+            p { color: #8b949e; line-height: 1.4; font-size: 14px; }
+            .section { margin-top: 20px; border-top: 1px solid #30363d; padding-top: 15px; }
+            label { display: block; margin-bottom: 5px; color: #c9d1d9; font-weight: bold; font-size: 13px; }
+            input[type="text"] { width: 100%; padding: 8px; box-sizing: border-box; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 5px; margin-bottom: 12px; }
+            button { background-color: #238636; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; font-size: 14px; transition: background 0.2s; }
+            button:hover { background-color: #2ea043; }
+            .btn-copy { background-color: #30363d; margin-top: 5px; }
+            .btn-copy:hover { background-color: #484f58; }
+            #retorno { margin-top: 15px; background: #0d1117; padding: 10px; border-radius: 5px; border: 1px solid #30363d; font-family: monospace; font-size: 12px; color: #3fb950; display: none; white-space: pre-wrap; }
         </style>
     </head>
     <body>
         <div class="card">
             <h1>Checklist Loja do Ponto</h1>
-            <div class="status">🟢 API Online e Ativa</div>
-            <p>O sistema de autodetecção e automação de relógios de ponto está rodando perfeitamente na nuvem.</p>
-            <p>Utilize a rota <code>/api/automacao/auto</code> via POST para enviar sua lista de IPs e iniciar os processos.</p>
+            <div class="status-container">
+                <div class="status">🟢 API Online e Ativa</div>
+            </div>
+            <p>Painel de controle com todos os fluxos de automação integrados (Control iD, Elite 40 e Facial / Modo Ponto).</p>
+            
+            <div class="section">
+                <label for="ipsInput">Digite os IPs dos Relógios (separados por vírgula):</label>
+                <input type="text" id="ipsInput" placeholder="Ex: 192.168.1.50, 192.168.1.51">
+                <button onclick="dispararAutomacao()">🚀 Disparar Automação Automática</button>
+                <div id="retorno"></div>
+            </div>
+
+            <div class="section" style="text-align: center;">
+                <input type="text" id="textoParaCopiar" value="https://checklistpontotecnologia.onrender.com" style="display:none;">
+                <button onclick="copiarLink()" class="btn-copy">📋 Copiar Link do Site</button>
+            </div>
         </div>
+
+        <script>
+        function dispararAutomacao() {
+            var ipsStr = document.getElementById("ipsInput").value;
+            if(!ipsStr) {
+                alert("Por favor, digite pelo menos um IP!");
+                return;
+            }
+            var ipsArray = ipsStr.split(',').map(item => item.trim()).filter(item => item.length > 0);
+            
+            var retornoDiv = document.getElementById("retorno");
+            retornoDiv.style.display = "block";
+            retornoDiv.innerText = "⏳ Enviando requisição para os equipamentos...";
+
+            fetch('/api/automacao/auto', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ips: ipsArray })
+            })
+            .then(response => response.json())
+            .then(data => {
+                retornoDiv.innerText = "✅ Sucesso!\n" + JSON.stringify(data, null, 2);
+            })
+            .catch(error => {
+                retornoDiv.innerText = "❌ Erro ao disparar: " + error;
+            });
+        }
+
+        function copiarLink() {
+            var copyText = document.getElementById("textoParaCopiar");
+            copyText.style.display = "block";
+            copyText.select();
+            document.execCommand("copy");
+            copyText.style.display = "none";
+            alert("Link copiado para a área de transferência!");
+        }
+        </script>
     </body>
     </html>
     """
