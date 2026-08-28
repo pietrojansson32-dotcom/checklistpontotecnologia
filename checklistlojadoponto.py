@@ -47,7 +47,7 @@ class AutomationRequest(BaseModel):
 # --- CONFIGURAÇÃO DO CHROME PARA SERVIDORES (HEADLESS) ---
 def get_chrome_driver():
     options = Options()
-    options.add_argument("--headless=new")  # Necessário para servidores sem interface gráfica
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
@@ -261,7 +261,6 @@ def executar_fluxo_foto_modo_ponto(driver, ip: str, image_name: str):
     codigo.send_keys("999999")
     driver.find_element(By.XPATH, "//label[contains(., 'Nome')]/following::input[1]").send_keys("Teste Ponto")
 
-    # UPLOAD NATIVO VIA SELENIUM (Sem PyAutoGUI)
     try:
         caminho_imagem = os.path.abspath(image_name)
         file_input = driver.find_element(By.XPATH, "//input[@type='file']")
