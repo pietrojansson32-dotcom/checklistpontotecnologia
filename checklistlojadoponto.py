@@ -1,257 +1,408 @@
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+import io
+import logging
+import os
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Optional
+
+import pyautogui
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+from webdriver_manager.chrome import ChromeDriverManager
 
-app = FastAPI()
+# --- CONFIGURAÇÃO DE LOGS ---
+log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automacao.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(log_path, encoding="utf-8", mode="a"),
+        logging.StreamHandler(),
+    ],
+)
+logger = logging.getLogger(__name__)
 
-class ChecklistData(BaseModel):
-    tecnico: str
-    loja: str
-    status: str
-    itens: List[str]
+# --- INSTÂNCIA FASTAPI ---
+app = FastAPI(
+    title="Checklist Loja do Ponto - Autodetecção e Automação",
+    description="API com detecção automática do modelo do equipamento.",
+    version="2.0.0",
+)
 
-# Serve a página HTML com o visual azul e branco direto na raiz
-@app.get("/", response_class=HTMLResponse)
-def home():
-    return """
-    <!DOCTYPE html>
-    <html lang="pt-BR">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>PONTO TECNOLOGIA - Checklist de Assistência</title>
-        <style>
-            :root {
-                --primary-dark: #002244;
-                --accent-blue: #007bff;
-                --bg-light: #f4f6f9;
-                --white: #ffffff;
-                --text-main: #333333;
-                --border: #e1e8ed;
+executor = ThreadPoolExecutor(max_workers=10)
+
+
+class AutomationRequest(BaseModel):
+    ips: List[str]
+    image_name: Optional[str] = "WIN_20260811_14_48_02_Pro.jpg"
+
+
+def get_chrome_driver():
+    options = Options()
+    options.add_argument("--start-maximized")
+    options.add_argument("--ignore-certificate-errors")
+    options.add_argument("--allow-insecure-localhost")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
+
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
+    driver.set_page_load_timeout(30)
+    return driver
+
+
+# --- FUNÇÃO DE AUTODETECÇÃO DO EQUIPAMENTO ---
+def identificar_equipamento(driver, url: str) -> str:
+    """Acessa o IP e identifica automaticamente o tipo de dispositivo."""
+    try:
+        driver.get(url)
+        time.sleep(2)
+        page_source = driver.page_source.lower()
+        title = driver.title.lower()
+
+        # Checagem Control iD
+        if "control id" in page_source or "controlid" in page_source or "idsecure" in page_source:
+            logger.info(f"🔍 [{url}] Equipamento identificado: Control iD")
+            return "control_id"
+
+        # Checagem Elite 40
+        if "elite" in page_source or "elite 40" in page_source or "elite40" in title:
+            logger.info(f"🔍 [{url}] Equipamento identificado: Elite 40")
+            return "elite40"
+
+        # Checagem Facial / Modo Ponto
+        if "definir novas credenciais" in page_source or "configurações faciais" in page_source or "modo ponto" in page_source:
+            logger.info(f"🔍 [{url}] Equipamento identificado: Facial / Modo Ponto")
+            return "foto_modo_ponto"
+
+        # Padrão caso não encontre palavra-chave exata
+        logger.warning(f"⚠️ [{url}] Não foi possível identificar com precisão. Assumindo fluxo genérico/Control iD.")
+        return "control_id"
+
+    except Exception as e:
+        logger.error(f"❌ Erro ao tentar identificar equipamento em {url}: {e}")
+        return "desconhecido"
+
+
+# --- AUXILIARES ---
+def preencher_campo_mascarado(driver, elemento, valor):
+    try:
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", elemento)
+        time.sleep(0.2)
+        driver.execute_script("""
+            var elem = arguments[0];
+            var val = arguments[1];
+            elem.focus();
+            elem.value = val;
+            if (typeof $ !== 'undefined') {
+                $(elem).val(val).trigger('input').trigger('change').trigger('keyup').trigger('blur');
             }
+        """, elemento, valor)
+        time.sleep(0.3)
+        if not elemento.get_attribute("value").strip():
+            elemento.click()
+            elemento.send_keys(Keys.CONTROL + "a")
+            elemento.send_keys(Keys.BACKSPACE)
+            for char in valor:
+                elemento.send_keys(char)
+                time.sleep(0.03)
+            elemento.send_keys(Keys.TAB)
+            time.sleep(0.2)
+    except Exception as e:
+        logger.warning(f"Erro em campo mascarado: {e}")
 
-            * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
-            body { background-color: var(--bg-light); color: var(--text-main); display: flex; flex-direction: column; min-height: 100vh; }
 
-            header {
-                background-color: var(--primary-dark);
-                color: var(--white);
-                padding: 15px 30px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-            }
+def preencher_campo_texto(driver, elemento, texto):
+    try:
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", elemento)
+        elemento.click()
+        elemento.send_keys(Keys.CONTROL + "a")
+        elemento.send_keys(Keys.BACKSPACE)
+        elemento.send_keys(texto)
+        time.sleep(0.2)
+    except Exception as e:
+        logger.warning(f"Erro em campo texto: {e}")
 
-            .logo-area { font-size: 20px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; }
-            .tech-text { font-weight: normal; font-size: 16px; opacity: 0.8; }
-            
-            nav a {
-                color: var(--white);
-                text-decoration: none;
-                margin-left: 20px;
-                font-size: 14px;
-                opacity: 0.9;
-                transition: opacity 0.2s;
-            }
-            nav a:hover { opacity: 1; }
 
-            main {
-                flex: 1;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                padding: 40px 20px;
-            }
+# --- FLUXOS DE EXECUÇÃO ---
+def executar_fluxo_control_id(driver, ip: str):
+    url_base = ip if ip.startswith(("http://", "https://")) else f"http://{ip}"
+    CPF_USUARIO = "15366117941"
+    MATRICULA_USUARIO = "9999"
 
-            .container {
-                background-color: var(--white);
-                width: 100%;
-                max-width: 550px;
-                padding: 40px;
-                border-radius: 8px;
-                box-shadow: 0 4px 20px rgba(0, 34, 68, 0.08);
-                border-top: 5px solid var(--accent-blue);
-            }
+    wait = WebDriverWait(driver, 15)
+    driver.get(url_base)
+    time.sleep(1.5)
 
-            h2 {
-                color: var(--primary-dark);
-                margin-bottom: 25px;
-                text-align: center;
-                font-size: 24px;
-            }
+    user_input = wait.until(EC.visibility_of_element_located((By.XPATH, "//input[@placeholder='Digite o usuário' or @type='text']")))
+    pass_input = wait.until(EC.visibility_of_element_located((By.XPATH, "//input[@placeholder='Digite a senha' or @type='password']")))
 
-            .form-group { margin-bottom: 18px; }
-            label { display: block; margin-bottom: 7px; font-weight: 600; color: #003366; font-size: 14px;}
-            
-            input[type="text"], select {
-                width: 100%;
-                padding: 12px 15px;
-                border: 1px solid var(--border);
-                border-radius: 4px;
-                font-size: 15px;
-                outline: none;
-                transition: border-color 0.2s;
-            }
-            input[type="text"]:focus, select:focus { border-color: var(--accent-blue); }
+    if not user_input.get_attribute("value").strip():
+        preencher_campo_texto(driver, user_input, "admin")
+        preencher_campo_texto(driver, pass_input, "admin")
 
-            .checkbox-group {
-                display: flex;
-                flex-direction: column;
-                gap: 12px;
-                margin-top: 10px;
-                background-color: #f9fbff;
-                padding: 15px;
-                border-radius: 4px;
-                border: 1px solid #edf2f7;
-            }
-            .checkbox-item {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                font-size: 14px;
-                color: #4a5568;
-                cursor: pointer;
-            }
-            
-            button {
-                width: 100%;
-                background-color: var(--accent-blue);
-                color: white;
-                border: none;
-                padding: 15px;
-                border-radius: 4px;
-                font-size: 16px;
-                font-weight: bold;
-                cursor: pointer;
-                margin-top: 20px;
-                transition: background-color 0.2s, transform 0.1s;
-            }
-            button:hover { background-color: #0069d9; }
-            button:active { transform: translateY(1px); }
+    btn_entrar = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Entrar')] | //a[contains(., 'Entrar')] | //input[@value='Entrar']")))
+    driver.execute_script("arguments[0].click();", btn_entrar)
+    time.sleep(2.5)
 
-            #status { margin-top: 20px; padding: 12px; border-radius: 4px; text-align: center; font-weight: bold; display: none; font-size: 14px;}
-            .sucesso { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-            .erro { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    menu_emp = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Empregador')] | //span[contains(., 'Empregador')]")))
+    driver.execute_script("arguments[0].click();", menu_emp)
+    time.sleep(2.5)
 
-            footer {
-                text-align: center;
-                padding: 20px;
-                font-size: 12px;
-                color: #888;
-                border-top: 1px solid var(--border);
-                background-color: #f8f9fa;
-            }
-        </style>
-    </head>
-    <body>
+    try:
+        inp_cnpj = driver.find_element(By.XPATH, "//label[contains(., 'CNPJ')]/following::input[1]")
+        preencher_campo_mascarado(driver, inp_cnpj, "11222333000181")
+        inp_cei = driver.find_element(By.XPATH, "//label[contains(., 'CEI') or contains(., 'CNO')]/following::input[1]")
+        preencher_campo_mascarado(driver, inp_cei, "000000000000")
+        inp_cpf_resp = driver.find_element(By.XPATH, "//label[contains(., 'CPF')]/following::input[1]")
+        preencher_campo_mascarado(driver, inp_cpf_resp, CPF_USUARIO)
+    except Exception:
+        pass
 
-    <header>
-        <div class="logo-area">PONTO <span class="tech-text">TECNOLOGIA</span></div>
-        <nav>
-            <a href="/docs">Documentação API</a>
-            <a href="#">Área Técnica</a>
-        </nav>
-    </header>
+    try:
+        input_razao = driver.find_element(By.XPATH, "//label[contains(., 'Razão Social')]/following::input[1]")
+        preencher_campo_texto(driver, input_razao, "teste loja")
+    except Exception:
+        pass
 
-    <main>
-        <div class="container">
-            <h2>Checklist de Assistência Técnica</h2>
-            <form id="checklistForm">
-                <div class="form-group">
-                    <label for="tecnico">Nome do Técnico:</label>
-                    <input type="text" id="tecnico" placeholder="Digite seu nome (ex: Pietro)" required>
-                </div>
+    try:
+        input_end = driver.find_element(By.XPATH, "//label[contains(., 'Endereço')]/following::input[1]")
+        preencher_campo_texto(driver, input_end, "teste loja")
+    except Exception:
+        pass
 
-                <div class="form-group">
-                    <label for="loja">Loja ou Cliente:</label>
-                    <input type="text" id="loja" placeholder="Digite a loja ou cliente (ex: Loja Centro)" required>
-                </div>
+    btn_salvar_emp = wait.until(EC.presence_of_element_located((By.XPATH, "//div[@id='MasterConteudo']//*[contains(@class, 'btn-success') or contains(text(), 'Salvar')]")))
+    driver.execute_script("arguments[0].click();", btn_salvar_emp)
+    time.sleep(3.0)
 
-                <div class="form-group">
-                    <label>Itens Verificados no Local:</label>
-                    <div class="checkbox-group">
-                        <label class="checkbox-item"><input type="checkbox" name="item" value="Biometria OK"> Leitor Biométrico</label>
-                        <label class="checkbox-item"><input type="checkbox" name="item" value="Fonte OK"> Fonte de Alimentação</label>
-                        <label class="checkbox-item"><input type="checkbox" name="item" value="Rede OK"> Conexão de Rede / Comunicação</label>
-                        <label class="checkbox-item"><input type="checkbox" name="item" value="Impressora OK"> Módulo de Impressão (Fiscal)</label>
-                        <label class="checkbox-item"><input type="checkbox" name="item" value="Display OK"> Display / Monitor Touch</label>
-                    </div>
-                </div>
+    menu_usr = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Usuários')] | //span[contains(., 'Usuários')]")))
+    driver.execute_script("arguments[0].click();", menu_usr)
+    time.sleep(2.5)
 
-                <div class="form-group">
-                    <label for="statusSelect">Status Geral do Serviço:</label>
-                    <select id="statusSelect">
-                        <option value="Aprovado">✅ Aprovado (Funcionando)</option>
-                        <option value="Pendente">⚠️ Pendente de Peça / Retorno</option>
-                        <option value="Reprovado">❌ Reprovado (Necessário Troca)</option>
-                    </select>
-                </div>
+    btn_add_user = wait.until(EC.presence_of_element_located((By.ID, "btnAddUser")))
+    driver.execute_script("arguments[0].click();", btn_add_user)
+    time.sleep(3.0)
 
-                <button type="submit" id="btnEnviar">Enviar Relatório Profissional</button>
-            </form>
+    input_nome = wait.until(EC.presence_of_element_located((By.ID, "name")))
+    preencher_campo_texto(driver, input_nome, "teste loja")
 
-            <div id="status"></div>
-        </div>
-    </main>
+    try:
+        input_cpf_user = driver.find_element(By.XPATH, "//label[contains(text(),'CPF')]/following::input[1]")
+    except Exception:
+        input_cpf_user = driver.find_element(By.ID, "pis")
 
-    <footer>
-        <p>&copy; 2026 PONTO TECNOLOGIA - Todos os direitos reservados.</p>
-    </footer>
+    preencher_campo_mascarado(driver, input_cpf_user, CPF_USUARIO)
 
-    <script>
-        document.getElementById('checklistForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
+    try:
+        input_matricula = driver.find_element(By.XPATH, "//label[contains(text(),'Matrícula')]/following::input[1]")
+        preencher_campo_texto(driver, input_matricula, MATRICULA_USUARIO)
+    except Exception:
+        pass
 
-            const btn = document.getElementById('btnEnviar');
-            const statusDiv = document.getElementById('status');
-            
-            btn.disabled = true;
-            btn.innerText = "Enviando Relatório...";
-            statusDiv.style.display = "none";
+    time.sleep(1.5)
+    btn_salvar_user = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(@class, 'btn-success') and (contains(., 'Salvar') or contains(., 'SALVAR'))] | //*[contains(@class, 'modal-footer')]//*[contains(text(), 'Salvar')]")))
+    driver.execute_script("arguments[0].click();", btn_salvar_user)
 
-            const itensSelecionados = Array.from(document.querySelectorAll('input[name="item"]:checked'))
-                                          .map(cb => cb.value);
 
-            const payload = {
-                tecnico: document.getElementById('tecnico').value,
-                loja: document.getElementById('loja').value,
-                status: document.getElementById('statusSelect').value,
-                itens: itensSelecionados
-            };
+def executar_fluxo_foto_modo_ponto(driver, ip: str, image_name: str):
+    url = f"http://{ip}" if not ip.startswith("http") else ip
+    wait = WebDriverWait(driver, 15)
+    driver.get(url)
+    time.sleep(3)
 
-            try {
-                const response = await fetch('/checklist', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+    try:
+        if driver.find_elements(By.XPATH, "//*[contains(text(), 'Definir Novas Credenciais')]"):
+            senha_nova = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@placeholder='Nova senha']")))
+            senha_nova.click()
+            senha_nova.clear()
+            senha_nova.send_keys("admin")
 
-                if (response.ok) {
-                    statusDiv.className = "sucesso";
-                    statusDiv.innerText = "Relatório de Checklist enviado com sucesso!";
-                    statusDiv.style.display = "block";
-                    document.getElementById('checklistForm').reset();
-                } else {
-                    throw new Error("Erro na resposta do servidor.");
-                }
-            } catch (error) {
-                statusDiv.className = "erro";
-                statusDiv.innerText = "Falha ao conectar com a API.";
-                statusDiv.style.display = "block";
-            } finally {
-                btn.disabled = false;
-                btn.innerText = "Enviar Relatório Profissional";
-            }
-        });
-    </script>
+            senha_confirma = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@placeholder='Confirmar senha']")))
+            senha_confirma.click()
+            senha_confirma.clear()
+            senha_confirma.send_keys("admin")
 
-    </body>
-    </html>
-    """
+            try:
+                checkbox_termos = driver.find_element(By.XPATH, "//input[@type='checkbox']")
+                if not checkbox_termos.is_selected():
+                    checkbox_termos.click()
+            except Exception:
+                driver.find_element(By.XPATH, "//*[contains(text(), 'Eu aceito os termos legais')]").click()
 
-@app.post("/checklist")
-def receber_checklist(dados: ChecklistData):
-    print(f"Checklist recebido: {dados}")
-    return {"status": "sucesso", "mensagem": "Relatório armazenado com sucesso!"}
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Salvar Credenciais')]"))).click()
+            time.sleep(3)
+    except Exception:
+        pass
+
+    login_field = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@placeholder='Login']")))
+    login_field.click()
+    login_field.clear()
+    login_field.send_keys("admin")
+
+    senha_field = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@placeholder='Senha']")))
+    senha_field.click()
+    senha_field.clear()
+    senha_field.send_keys("admin")
+
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Entrar')]"))).click()
+
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Cadastros']"))).click()
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Usuários']"))).click()
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Adicionar']"))).click()
+
+    codigo = wait.until(EC.presence_of_element_located((By.XPATH, "//label[contains(., 'Código')]/following::input[1]")))
+    codigo.send_keys("999999")
+    driver.find_element(By.XPATH, "//label[contains(., 'Nome')]/following::input[1]").send_keys("Teste Ponto")
+
+    try:
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Arquivos' or text()='Arquivo' or text()='Examinar' or text()='Selecionar' or contains(@class, 'upload')]"))).click()
+    except Exception:
+        file_input = driver.find_element(By.XPATH, "//input[@type='file']")
+        driver.execute_script("arguments[0].click();", file_input)
+
+    time.sleep(1.5)
+    pyautogui.write(image_name)
+    time.sleep(1)
+    pyautogui.press("enter")
+    time.sleep(1.5)
+
+    driver.find_element(By.XPATH, "//*[text()='Salvar']").click()
+    time.sleep(1)
+
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Configurações Faciais']"))).click()
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Configurações Gerais']"))).click()
+
+    campo = wait.until(EC.presence_of_element_located((By.XPATH, "//label[contains(., 'Distância')]/following::input[1]")))
+    campo.send_keys(Keys.CONTROL + "a")
+    campo.send_keys(Keys.BACKSPACE)
+    campo.send_keys("60")
+    campo.send_keys(Keys.ENTER)
+    time.sleep(1)
+
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Acesso']"))).click()
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Modo Ponto']"))).click()
+
+    chk_hab = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Habilitar')]/..//input")))
+    if not chk_hab.is_selected():
+        chk_hab.click()
+
+    chk_tipo = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Habilitar tipos de Batida')]/..//input")))
+    if not chk_tipo.is_selected():
+        chk_tipo.click()
+
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Adicionar']"))).click()
+
+    id_field = wait.until(EC.presence_of_element_located((By.XPATH, "//label[contains(., 'ID')]/following::input[1]")))
+    id_field.send_keys(Keys.CONTROL + "a")
+    id_field.send_keys(Keys.BACKSPACE)
+    id_field.send_keys("1")
+
+    driver.find_element(By.XPATH, "//label[contains(., 'Nome')]/following::input[1]").send_keys("Registrar")
+
+    driver.find_element(By.XPATH, "//*[text()='Salvar']").click()
+    time.sleep(2)
+    driver.find_element(By.XPATH, "//*[text()='Salvar']").click()
+    time.sleep(1.5)
+
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='ok' or text()='OK' or text()='Ok']"))).click()
+
+
+def executar_fluxo_elite40(driver, ip: str):
+    url = f"http://{ip}" if not ip.startswith(("http://", "https://")) else ip
+    driver.get(url)
+    wait = WebDriverWait(driver, 15)
+
+    campo_senha = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='password']")))
+    campo_senha.clear()
+    campo_senha.send_keys("123")
+    campo_senha.send_keys(Keys.ENTER)
+    time.sleep(2)
+
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Usuários')]"))).click()
+    time.sleep(1)
+
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Novo usuário') or contains(text(), 'Novo')]"))).click()
+    time.sleep(2)
+
+    iframe = wait.until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
+    driver.switch_to.frame(iframe)
+
+    campo_nome = wait.until(EC.presence_of_element_located((By.XPATH, "//label[contains(text(),'Nome')]/following::input[1] | //td[contains(text(),'Nome')]/following::input[1] | (//input[@type='text'])[2]")))
+    campo_nome.click()
+    campo_nome.clear()
+    campo_nome.send_keys("teste loja")
+    time.sleep(1)
+
+    try:
+        btn_excluir = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Excluir')] | //a[contains(text(), 'Excluir')] | //*[text()='Excluir']")))
+        btn_excluir.click()
+        time.sleep(1)
+        try:
+            alert = driver.switch_to.alert
+            alert.accept()
+            time.sleep(1)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    btn_adicionar = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Adicionar no dispositivo')]")))
+    btn_adicionar.click()
+    time.sleep(3)
+
+
+# --- ORQUESTRADOR COM AUTODETECÇÃO ---
+def processar_ip_automatico(ip: str, image_name: str):
+    url = ip if ip.startswith(("http://", "https://")) else f"http://{ip}"
+    driver = None
+    try:
+        driver = get_chrome_driver()
+        tipo_equipamento = identificar_equipamento(driver, url)
+
+        if tipo_equipamento == "control_id":
+            logger.info(f"▶️ Executando fluxo Control iD para o IP {ip}")
+            executar_fluxo_control_id(driver, ip)
+        elif tipo_equipamento == "foto_modo_ponto":
+            logger.info(f"▶️ Executando fluxo Foto/Modo Ponto para o IP {ip}")
+            executar_fluxo_foto_modo_ponto(driver, ip, image_name)
+        elif tipo_equipamento == "elite40":
+            logger.info(f"▶️ Executando fluxo Elite 40 para o IP {ip}")
+            executar_fluxo_elite40(driver, ip)
+        else:
+            logger.error(f"❌ Não foi possível determinar o script correto para o IP {ip}")
+
+        logger.info(f"✅ [{ip}] Processamento automatizado finalizado com sucesso!")
+    except Exception as e:
+        logger.error(f"❌ Erro durante o processamento do IP {ip}: {e}")
+    finally:
+        if driver:
+            driver.quit()
+
+
+# --- ENDPOINT DE AUTODETECÇÃO ---
+@app.post("/api/automacao/auto")
+def api_run_autodetect(payload: AutomationRequest):
+    """Recebe apenas a lista de IPs e decide sozinho qual automação rodar para cada um."""
+    if not payload.ips:
+        raise HTTPException(status_code=400, detail="Lista de IPs vazia.")
+
+    for ip in payload.ips:
+        executor.submit(processar_ip_automatico, ip, payload.image_name)
+
+    return {
+        "status": "iniciado",
+        "message": f"Autodetecção e automação iniciadas em segundo plano para os IPs: {payload.ips}",
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("checklistlojadoponto:app", host="0.0.0.0", port=8000, reload=True)
