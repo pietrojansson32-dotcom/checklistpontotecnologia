@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Ponto Tecnologia - Painel de Automação",
     description="API para automação de equipamentos com detecção automática do modelo.",
-    version="3.1.0",
+    version="3.2.0",
 )
 
 executor = ThreadPoolExecutor(max_workers=10)
@@ -43,12 +43,15 @@ executor = ThreadPoolExecutor(max_workers=10)
 class AutomationRequest(BaseModel):
     ips: List[str]
     image_name: Optional[str] = "WIN_20260811_14_48_02_Pro.jpg"
+    headless: Optional[bool] = True
 
 
-# --- CONFIGURAÇÃO DO CHROME PARA SERVIDORES (HEADLESS) ---
-def get_chrome_driver():
+# --- CONFIGURAÇÃO DO CHROME ---
+def get_chrome_driver(headless: bool = True):
     options = Options()
-    options.add_argument("--headless=new")
+    if headless:
+        options.add_argument("--headless=new")
+    
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
@@ -310,11 +313,11 @@ def executar_fluxo_elite40(driver, ip: str):
 
 
 # --- ORQUESTRADOR ---
-def processar_ip_automatico(ip: str, image_name: str):
+def processar_ip_automatico(ip: str, image_name: str, headless: bool):
     url = ip if ip.startswith(("http://", "https://")) else f"http://{ip}"
     driver = None
     try:
-        driver = get_chrome_driver()
+        driver = get_chrome_driver(headless=headless)
         tipo_equipamento = identificar_equipamento(driver, url)
         if tipo_equipamento == "control_id":
             executar_fluxo_control_id(driver, ip)
@@ -392,11 +395,10 @@ def read_root():
                 overflow: hidden;
             }
 
-            /* Insira a URL direta da imagem da sua digital ou logo aqui se desejar */
-            .logo-icon img {
-                width: 100%;
-                height: 100%;
-                object-fit: cover;
+            .logo-icon svg {
+                width: 38px;
+                height: 38px;
+                fill: #38bdf8;
             }
 
             .logo-text h1 {
@@ -469,6 +471,24 @@ def read_root():
                 box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
             }
 
+            .checkbox-container {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 20px;
+                text-align: left;
+                font-size: 13px;
+                color: #94a3b8;
+                cursor: pointer;
+            }
+
+            .checkbox-container input {
+                accent-color: #38bdf8;
+                width: 16px;
+                height: 16px;
+                cursor: pointer;
+            }
+
             .btn-primary {
                 width: 100%;
                 padding: 14px;
@@ -536,7 +556,7 @@ def read_root():
         <div class="container">
             <div class="logo-wrapper">
                 <div class="logo-icon">
-                    <svg viewBox="0 0 24 24" style="width: 36px; height: 36px; fill: #38bdf8;">
+                    <svg viewBox="0 0 24 24">
                         <path d="M12 2C6.48 2 2 6.48 2 12c0 2.21.72 4.26 1.93 5.93l1.5-1.3C4.44 15.24 4 13.68 4 12c0-4.41 3.59-8 8-8s8 3.59 8 8c0 1.68-.44 3.24-1.43 4.63l1.5 1.3C21.28 16.26 22 14.21 22 12c0-5.52-4.48-10-10-10zm0 4c-3.31 0-6 2.69-6 6 0 1.16.34 2.24.93 3.15l1.45-1.22C8.16 13.39 8 12.72 8 12c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .72-.16 1.39-.38 1.93l1.45 1.22c.59-.91.93-1.99.93-3.15 0-3.31-2.69-6-6-6zm0 4c-1.1 0-2 .9-2 2 0 .39.11.75.3 1.06l1.46-1.23c-.05-.2-.06-.41-.06-.63 0-.66.54-1.2 1.2-1.2s1.2.54 1.2 1.2c0 .22-.01.43-.06.63l1.46 1.23c.19-.31.3-.67.3-1.06 0-1.1-.9-2-2-2z"/>
                     </svg>
                 </div>
@@ -556,6 +576,10 @@ def read_root():
                 <input type="text" id="ipsInput" placeholder="Ex: 192.168.1.50, 192.168.1.51">
             </div>
 
+            <label class="checkbox-container">
+                <input type="checkbox" id="showBrowser"> Exibir tela do navegador na minha máquina (Modo Local)
+            </label>
+
             <button class="btn-primary" onclick="dispararAutomacao()">
                 ⚡ Executar Checklist Automático
             </button>
@@ -571,6 +595,8 @@ def read_root():
         <script>
         function dispararAutomacao() {
             var ipsStr = document.getElementById("ipsInput").value;
+            var showBrowser = document.getElementById("showBrowser").checked;
+
             if(!ipsStr) {
                 alert("Insira pelo menos um IP para iniciar a automação.");
                 return;
@@ -584,7 +610,10 @@ def read_root():
             fetch('/api/automacao/auto', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ips: ipsArray })
+                body: JSON.stringify({ 
+                    ips: ipsArray,
+                    headless: !showBrowser 
+                })
             })
             .then(response => response.json())
             .then(data => {
@@ -613,7 +642,7 @@ def api_run_autodetect(payload: AutomationRequest):
         raise HTTPException(status_code=400, detail="Lista de IPs vazia.")
 
     for ip in payload.ips:
-        executor.submit(processar_ip_automatico, ip, payload.image_name)
+        executor.submit(processar_ip_automatico, ip, payload.image_name, payload.headless)
 
     return {
         "status": "iniciado",
