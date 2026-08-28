@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Ponto Tecnologia - Painel de Automação",
     description="API para automação de equipamentos com detecção automática do modelo.",
-    version="3.0.0",
+    version="3.1.0",
 )
 
 executor = ThreadPoolExecutor(max_workers=10)
@@ -330,7 +330,7 @@ def processar_ip_automatico(ip: str, image_name: str):
             driver.quit()
 
 
-# --- INTERFACE VISUAL PREMIUM (BASEADA NA LOGO) ---
+# --- INTERFACE VISUAL PREMIUM COM DIGITAL EXATA ---
 @app.get("/", response_class=HTMLResponse)
 def read_root():
     return """
@@ -371,7 +371,6 @@ def read_root():
                 text-align: center;
             }
 
-            /* Logotipo Estilizado */
             .logo-wrapper {
                 display: flex;
                 align-items: center;
@@ -381,33 +380,28 @@ def read_root():
             }
 
             .logo-icon {
-                width: 55px;
-                height: 55px;
+                width: 60px;
+                height: 60px;
                 border: 2px solid #38bdf8;
                 border-radius: 50%;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                box-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
-                position: relative;
-                animation: pulseGlow 3s infinite;
+                box-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+                background: #000;
+                overflow: hidden;
             }
 
-            .logo-icon svg {
-                width: 32px;
-                height: 32px;
-                fill: #38bdf8;
-            }
-
-            @keyframes pulseGlow {
-                0% { box-shadow: 0 0 10px rgba(56, 189, 248, 0.3); }
-                50% { box-shadow: 0 0 25px rgba(56, 189, 248, 0.7); }
-                100% { box-shadow: 0 0 10px rgba(56, 189, 248, 0.3); }
+            /* Insira a URL direta da imagem da sua digital ou logo aqui se desejar */
+            .logo-icon img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
             }
 
             .logo-text h1 {
                 font-family: 'Orbitron', sans-serif;
-                font-size: 22px;
+                font-size: 24px;
                 font-weight: 700;
                 color: #ffffff;
                 letter-spacing: 1px;
@@ -540,11 +534,9 @@ def read_root():
     <body>
 
         <div class="container">
-            <!-- Logotipo em CSS baseado fielmente na sua imagem -->
             <div class="logo-wrapper">
                 <div class="logo-icon">
-                    <!-- Ícone de Impressão Digital (Biometria) -->
-                    <svg viewBox="0 0 24 24">
+                    <svg viewBox="0 0 24 24" style="width: 36px; height: 36px; fill: #38bdf8;">
                         <path d="M12 2C6.48 2 2 6.48 2 12c0 2.21.72 4.26 1.93 5.93l1.5-1.3C4.44 15.24 4 13.68 4 12c0-4.41 3.59-8 8-8s8 3.59 8 8c0 1.68-.44 3.24-1.43 4.63l1.5 1.3C21.28 16.26 22 14.21 22 12c0-5.52-4.48-10-10-10zm0 4c-3.31 0-6 2.69-6 6 0 1.16.34 2.24.93 3.15l1.45-1.22C8.16 13.39 8 12.72 8 12c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .72-.16 1.39-.38 1.93l1.45 1.22c.59-.91.93-1.99.93-3.15 0-3.31-2.69-6-6-6zm0 4c-1.1 0-2 .9-2 2 0 .39.11.75.3 1.06l1.46-1.23c-.05-.2-.06-.41-.06-.63 0-.66.54-1.2 1.2-1.2s1.2.54 1.2 1.2c0 .22-.01.43-.06.63l1.46 1.23c.19-.31.3-.67.3-1.06 0-1.1-.9-2-2-2z"/>
                     </svg>
                 </div>
