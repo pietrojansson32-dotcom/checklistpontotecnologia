@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Ponto Tecnologia - Painel de Automação</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f6f9; margin: 0; padding: 50px; display: flex; justify-content: center; }
+        .card { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 400px; }
+        h2 { color: #333; margin-top: 0; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
+        input[type="text"] { width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: #007bff; color: white; border: none; padding: 10px 15px; width: 100%; border-radius: 4px; font-size: 16px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        #resultado { margin-top: 15px; font-weight: bold; color: #333; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Automação Relógio de Ponto</h2>
+        <label for="ip">IP do Equipamento:</label>
+        <input type="text" id="ip" placeholder="Ex: 192.168.1.50">
+        <button onclick="executarAutomacao()">Executar Cadastro</button>
+        <div id="resultado"></div>
+    </div>
+
+    <script>
+        async function executarAutomacao() {
+            const ip = document.getElementById('ip').value;
+            const resDiv = document.getElementById('resultado');
+            if (!ip) {
+                alert('Digite o IP do equipamento!');
+                return;
+            }
+            resDiv.innerText = 'Executando automação... Aguarde.';
+            
+            try {
+                const response = await fetch('/api/automacao/auto', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ip: ip })
+                });
+                const data = await response.json();
+                resDiv.innerText = 'Sucesso! Resposta: ' + JSON.stringify(data);
+            } catch (err) {
+                resDiv.innerText = 'Erro ao conectar com a API.';
+            }
+        }
+    </script>
+</body>
+</html>
