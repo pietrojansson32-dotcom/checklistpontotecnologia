@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Checklist Loja do Ponto - Autodetecção e Automação",
     description="API para automação de equipamentos com detecção automática do modelo.",
-    version="2.0.0",
+    version="2.1.0",
 )
 
 executor = ThreadPoolExecutor(max_workers=10)
@@ -63,7 +64,6 @@ def get_chrome_driver():
 
 # --- FUNÇÃO DE AUTODETECÇÃO DO EQUIPAMENTO ---
 def identificar_equipamento(driver, url: str) -> str:
-    """Acessa o IP e identifica automaticamente o tipo de dispositivo."""
     try:
         driver.get(url)
         time.sleep(2)
@@ -382,9 +382,33 @@ def processar_ip_automatico(ip: str, image_name: str):
 
 
 # --- ENDPOINTS DA API ---
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def read_root():
-    return {"status": "online", "message": "API Ativa e Pronta para Autodetecção"}
+    return """
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Checklist Loja do Ponto - Painel</title>
+        <style>
+            body { font-family: Arial, sans-serif; background-color: #0d1117; color: #c9d1d9; text-align: center; padding: 50px; }
+            .card { background-color: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 30px; display: inline-block; max-width: 600px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+            h1 { color: #58a6ff; }
+            .status { background-color: #238636; color: white; padding: 8px 15px; border-radius: 20px; font-weight: bold; display: inline-block; margin: 15px 0; }
+            p { color: #8b949e; line-height: 1.5; }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>Checklist Loja do Ponto</h1>
+            <div class="status">🟢 API Online e Ativa</div>
+            <p>O sistema de autodetecção e automação de relógios de ponto está rodando perfeitamente na nuvem.</p>
+            <p>Utilize a rota <code>/api/automacao/auto</code> via POST para enviar sua lista de IPs e iniciar os processos.</p>
+        </div>
+    </body>
+    </html>
+    """
 
 
 @app.post("/api/automacao/auto")
