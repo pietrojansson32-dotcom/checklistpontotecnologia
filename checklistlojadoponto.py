@@ -32,9 +32,9 @@ logger = logging.getLogger(__name__)
 
 # --- INSTÂNCIA FASTAPI ---
 app = FastAPI(
-    title="Checklist Loja do Ponto - Autodetecção e Automação",
+    title="Ponto Tecnologia - Painel de Automação",
     description="API para automação de equipamentos com detecção automática do modelo.",
-    version="2.2.0",
+    version="3.0.0",
 )
 
 executor = ThreadPoolExecutor(max_workers=10)
@@ -130,31 +130,25 @@ def preencher_campo_texto(driver, elemento, texto):
         logger.warning(f"Erro em campo texto: {e}")
 
 
-# --- FLUXO 1: CONTROL ID ---
+# --- FLUXOS DE AUTOMAÇÃO ---
 def executar_fluxo_control_id(driver, ip: str):
     url_base = ip if ip.startswith(("http://", "https://")) else f"http://{ip}"
     CPF_USUARIO = "15366117941"
     MATRICULA_USUARIO = "9999"
-
     wait = WebDriverWait(driver, 15)
     driver.get(url_base)
     time.sleep(1.5)
-
     user_input = wait.until(EC.visibility_of_element_located((By.XPATH, "//input[@placeholder='Digite o usuário' or @type='text']")))
     pass_input = wait.until(EC.visibility_of_element_located((By.XPATH, "//input[@placeholder='Digite a senha' or @type='password']")))
-
     if not user_input.get_attribute("value").strip():
         preencher_campo_texto(driver, user_input, "admin")
         preencher_campo_texto(driver, pass_input, "admin")
-
     btn_entrar = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Entrar')] | //a[contains(., 'Entrar')] | //input[@value='Entrar']")))
     driver.execute_script("arguments[0].click();", btn_entrar)
     time.sleep(2.5)
-
     menu_emp = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Empregador')] | //span[contains(., 'Empregador')]")))
     driver.execute_script("arguments[0].click();", menu_emp)
     time.sleep(2.5)
-
     try:
         inp_cnpj = driver.find_element(By.XPATH, "//label[contains(., 'CNPJ')]/following::input[1]")
         preencher_campo_mascarado(driver, inp_cnpj, "11222333000181")
@@ -164,103 +158,82 @@ def executar_fluxo_control_id(driver, ip: str):
         preencher_campo_mascarado(driver, inp_cpf_resp, CPF_USUARIO)
     except Exception:
         pass
-
     try:
         input_razao = driver.find_element(By.XPATH, "//label[contains(., 'Razão Social')]/following::input[1]")
         preencher_campo_texto(driver, input_razao, "teste loja")
     except Exception:
         pass
-
     try:
         input_end = driver.find_element(By.XPATH, "//label[contains(., 'Endereço')]/following::input[1]")
         preencher_campo_texto(driver, input_end, "teste loja")
     except Exception:
         pass
-
     btn_salvar_emp = wait.until(EC.presence_of_element_located((By.XPATH, "//div[@id='MasterConteudo']//*[contains(@class, 'btn-success') or contains(text(), 'Salvar')]")))
     driver.execute_script("arguments[0].click();", btn_salvar_emp)
     time.sleep(3.0)
-
     menu_usr = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Usuários')] | //span[contains(., 'Usuários')]")))
     driver.execute_script("arguments[0].click();", menu_usr)
     time.sleep(2.5)
-
     btn_add_user = wait.until(EC.presence_of_element_located((By.ID, "btnAddUser")))
     driver.execute_script("arguments[0].click();", btn_add_user)
     time.sleep(3.0)
-
     input_nome = wait.until(EC.presence_of_element_located((By.ID, "name")))
     preencher_campo_texto(driver, input_nome, "teste loja")
-
     try:
         input_cpf_user = driver.find_element(By.XPATH, "//label[contains(text(),'CPF')]/following::input[1]")
     except Exception:
         input_cpf_user = driver.find_element(By.ID, "pis")
-
     preencher_campo_mascarado(driver, input_cpf_user, CPF_USUARIO)
-
     try:
         input_matricula = driver.find_element(By.XPATH, "//label[contains(text(),'Matrícula')]/following::input[1]")
         preencher_campo_texto(driver, input_matricula, MATRICULA_USUARIO)
     except Exception:
         pass
-
     time.sleep(1.5)
     btn_salvar_user = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(@class, 'btn-success') and (contains(., 'Salvar') or contains(., 'SALVAR'))] | //*[contains(@class, 'modal-footer')]//*[contains(text(), 'Salvar')]")))
     driver.execute_script("arguments[0].click();", btn_salvar_user)
 
 
-# --- FLUXO 2: FOTO & MODO PONTO ---
 def executar_fluxo_foto_modo_ponto(driver, ip: str, image_name: str):
     url = f"http://{ip}" if not ip.startswith("http") else ip
     wait = WebDriverWait(driver, 15)
     driver.get(url)
     time.sleep(3)
-
     try:
         if driver.find_elements(By.XPATH, "//*[contains(text(), 'Definir Novas Credenciais')]"):
             senha_nova = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@placeholder='Nova senha']")))
             senha_nova.click()
             senha_nova.clear()
             senha_nova.send_keys("admin")
-
             senha_confirma = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@placeholder='Confirmar senha']")))
             senha_confirma.click()
             senha_confirma.clear()
             senha_confirma.send_keys("admin")
-
             try:
                 checkbox_termos = driver.find_element(By.XPATH, "//input[@type='checkbox']")
                 if not checkbox_termos.is_selected():
                     checkbox_termos.click()
             except Exception:
                 driver.find_element(By.XPATH, "//*[contains(text(), 'Eu aceito os termos legais')]").click()
-
             wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Salvar Credenciais')]"))).click()
             time.sleep(3)
     except Exception:
         pass
-
     login_field = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@placeholder='Login']")))
     login_field.click()
     login_field.clear()
     login_field.send_keys("admin")
-
     senha_field = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@placeholder='Senha']")))
     senha_field.click()
     senha_field.clear()
     senha_field.send_keys("admin")
-
     wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Entrar')]"))).click()
-
     wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Cadastros']"))).click()
     wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Usuários']"))).click()
     wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Adicionar']"))).click()
-
     codigo = wait.until(EC.presence_of_element_located((By.XPATH, "//label[contains(., 'Código')]/following::input[1]")))
     codigo.send_keys("999999")
     driver.find_element(By.XPATH, "//label[contains(., 'Nome')]/following::input[1]").send_keys("Teste Ponto")
-
     try:
         caminho_imagem = os.path.abspath(image_name)
         file_input = driver.find_element(By.XPATH, "//input[@type='file']")
@@ -268,75 +241,57 @@ def executar_fluxo_foto_modo_ponto(driver, ip: str, image_name: str):
         time.sleep(1.5)
     except Exception as ex_upload:
         logger.warning(f"Erro no upload da foto: {ex_upload}")
-
     driver.find_element(By.XPATH, "//*[text()='Salvar']").click()
     time.sleep(1)
-
     wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Configurações Faciais']"))).click()
     wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Configurações Gerais']"))).click()
-
     campo = wait.until(EC.presence_of_element_located((By.XPATH, "//label[contains(., 'Distância')]/following::input[1]")))
     campo.send_keys(Keys.CONTROL + "a")
     campo.send_keys(Keys.BACKSPACE)
     campo.send_keys("60")
     campo.send_keys(Keys.ENTER)
     time.sleep(1)
-
     wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Acesso']"))).click()
     wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Modo Ponto']"))).click()
-
     chk_hab = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Habilitar')]/..//input")))
     if not chk_hab.is_selected():
         chk_hab.click()
-
     chk_tipo = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Habilitar tipos de Batida')]/..//input")))
     if not chk_tipo.is_selected():
         chk_tipo.click()
-
     wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='Adicionar']"))).click()
-
     id_field = wait.until(EC.presence_of_element_located((By.XPATH, "//label[contains(., 'ID')]/following::input[1]")))
     id_field.send_keys(Keys.CONTROL + "a")
     id_field.send_keys(Keys.BACKSPACE)
     id_field.send_keys("1")
-
     driver.find_element(By.XPATH, "//label[contains(., 'Nome')]/following::input[1]").send_keys("Registrar")
-
     driver.find_element(By.XPATH, "//*[text()='Salvar']").click()
     time.sleep(2)
     driver.find_element(By.XPATH, "//*[text()='Salvar']").click()
     time.sleep(1.5)
-
     wait.until(EC.element_to_be_clickable((By.XPATH, "//*[text()='ok' or text()='OK' or text()='Ok']"))).click()
 
 
-# --- FLUXO 3: ELITE 40 ---
 def executar_fluxo_elite40(driver, ip: str):
     url = f"http://{ip}" if not ip.startswith(("http://", "https://")) else ip
     driver.get(url)
     wait = WebDriverWait(driver, 15)
-
     campo_senha = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='password']")))
     campo_senha.clear()
     campo_senha.send_keys("123")
     campo_senha.send_keys(Keys.ENTER)
     time.sleep(2)
-
     wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Usuários')]"))).click()
     time.sleep(1)
-
     wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Novo usuário') or contains(text(), 'Novo')]"))).click()
     time.sleep(2)
-
     iframe = wait.until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
     driver.switch_to.frame(iframe)
-
     campo_nome = wait.until(EC.presence_of_element_located((By.XPATH, "//label[contains(text(),'Nome')]/following::input[1] | //td[contains(text(),'Nome')]/following::input[1] | (//input[@type='text'])[2]")))
     campo_nome.click()
     campo_nome.clear()
     campo_nome.send_keys("teste loja")
     time.sleep(1)
-
     try:
         btn_excluir = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Excluir')] | //a[contains(text(), 'Excluir')] | //*[text()='Excluir']")))
         btn_excluir.click()
@@ -349,30 +304,24 @@ def executar_fluxo_elite40(driver, ip: str):
             pass
     except Exception:
         pass
-
     btn_adicionar = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Adicionar no dispositivo')]")))
     btn_adicionar.click()
     time.sleep(3)
 
 
-# --- ORQUESTRADOR COM AUTODETECÇÃO ---
+# --- ORQUESTRADOR ---
 def processar_ip_automatico(ip: str, image_name: str):
     url = ip if ip.startswith(("http://", "https://")) else f"http://{ip}"
     driver = None
     try:
         driver = get_chrome_driver()
         tipo_equipamento = identificar_equipamento(driver, url)
-
         if tipo_equipamento == "control_id":
-            logger.info(f"▶️ Executando Control iD para o IP {ip}")
             executar_fluxo_control_id(driver, ip)
         elif tipo_equipamento == "foto_modo_ponto":
-            logger.info(f"▶️ Executando Foto/Modo Ponto para o IP {ip}")
             executar_fluxo_foto_modo_ponto(driver, ip, image_name)
         elif tipo_equipamento == "elite40":
-            logger.info(f"▶️ Executando Elite 40 para o IP {ip}")
             executar_fluxo_elite40(driver, ip)
-
         logger.info(f"✅ [{ip}] Automação concluída!")
     except Exception as e:
         logger.error(f"❌ Erro durante automação do IP {ip}: {e}")
@@ -381,7 +330,7 @@ def processar_ip_automatico(ip: str, image_name: str):
             driver.quit()
 
 
-# --- ENDPOINTS DA API ---
+# --- INTERFACE VISUAL PREMIUM (BASEADA NA LOGO) ---
 @app.get("/", response_class=HTMLResponse)
 def read_root():
     return """
@@ -390,57 +339,255 @@ def read_root():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Checklist Loja do Ponto - Painel</title>
+        <title>Ponto Tecnologia - Painel de Automação</title>
         <style>
-            body { font-family: Arial, sans-serif; background-color: #0d1117; color: #c9d1d9; text-align: center; padding: 30px; }
-            .card { background-color: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 25px; display: inline-block; max-width: 700px; width: 100%; box-shadow: 0 4px 10px rgba(0,0,0,0.5); text-align: left; }
-            h1 { color: #58a6ff; text-align: center; font-size: 24px; }
-            .status { background-color: #238636; color: white; padding: 6px 12px; border-radius: 20px; font-weight: bold; display: inline-block; margin: 10px 0; font-size: 14px; }
-            .status-container { text-align: center; }
-            p { color: #8b949e; line-height: 1.4; font-size: 14px; }
-            .section { margin-top: 20px; border-top: 1px solid #30363d; padding-top: 15px; }
-            label { display: block; margin-bottom: 5px; color: #c9d1d9; font-weight: bold; font-size: 13px; }
-            input[type="text"] { width: 100%; padding: 8px; box-sizing: border-box; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 5px; margin-bottom: 12px; }
-            button { background-color: #238636; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; font-size: 14px; transition: background 0.2s; }
-            button:hover { background-color: #2ea043; }
-            .btn-copy { background-color: #30363d; margin-top: 5px; }
-            .btn-copy:hover { background-color: #484f58; }
-            #retorno { margin-top: 15px; background: #0d1117; padding: 10px; border-radius: 5px; border: 1px solid #30363d; font-family: monospace; font-size: 12px; color: #3fb950; display: none; white-space: pre-wrap; }
+            @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Inter:wght@300;400;600&display=swap');
+
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body {
+                font-family: 'Inter', sans-serif;
+                background-color: #030712;
+                background-image: 
+                    radial-gradient(circle at 15% 20%, rgba(15, 23, 42, 0.9) 0%, transparent 40%),
+                    radial-gradient(circle at 85% 80%, rgba(2, 6, 23, 0.9) 0%, transparent 40%);
+                color: #f3f4f6;
+                min-height: 100vh;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 20px;
+            }
+
+            .container {
+                background: rgba(15, 23, 42, 0.75);
+                backdrop-filter: blur(16px);
+                -webkit-backdrop-filter: blur(16px);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 20px;
+                padding: 40px;
+                max-width: 650px;
+                width: 100%;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 50px rgba(56, 189, 248, 0.05);
+                text-align: center;
+            }
+
+            /* Logotipo Estilizado */
+            .logo-wrapper {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 15px;
+                margin-bottom: 25px;
+            }
+
+            .logo-icon {
+                width: 55px;
+                height: 55px;
+                border: 2px solid #38bdf8;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
+                position: relative;
+                animation: pulseGlow 3s infinite;
+            }
+
+            .logo-icon svg {
+                width: 32px;
+                height: 32px;
+                fill: #38bdf8;
+            }
+
+            @keyframes pulseGlow {
+                0% { box-shadow: 0 0 10px rgba(56, 189, 248, 0.3); }
+                50% { box-shadow: 0 0 25px rgba(56, 189, 248, 0.7); }
+                100% { box-shadow: 0 0 10px rgba(56, 189, 248, 0.3); }
+            }
+
+            .logo-text h1 {
+                font-family: 'Orbitron', sans-serif;
+                font-size: 22px;
+                font-weight: 700;
+                color: #ffffff;
+                letter-spacing: 1px;
+                text-align: left;
+            }
+
+            .logo-text span {
+                font-size: 11px;
+                color: #94a3b8;
+                letter-spacing: 4px;
+                text-transform: uppercase;
+                display: block;
+                text-align: left;
+            }
+
+            .status-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                background: rgba(16, 185, 129, 0.12);
+                border: 1px solid rgba(16, 185, 129, 0.3);
+                color: #34d399;
+                padding: 6px 14px;
+                border-radius: 30px;
+                font-size: 13px;
+                font-weight: 600;
+                margin-bottom: 25px;
+            }
+
+            .status-dot {
+                width: 8px;
+                height: 8px;
+                background-color: #34d399;
+                border-radius: 50%;
+                box-shadow: 0 0 8px #34d399;
+            }
+
+            .form-group {
+                text-align: left;
+                margin-bottom: 20px;
+            }
+
+            label {
+                display: block;
+                font-size: 13px;
+                font-weight: 600;
+                color: #cbd5e1;
+                margin-bottom: 8px;
+            }
+
+            input[type="text"] {
+                width: 100%;
+                padding: 14px 16px;
+                background: rgba(3, 7, 18, 0.6);
+                border: 1px solid #334155;
+                border-radius: 10px;
+                color: #ffffff;
+                font-size: 14px;
+                outline: none;
+                transition: all 0.3s ease;
+            }
+
+            input[type="text"]:focus {
+                border-color: #38bdf8;
+                box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+            }
+
+            .btn-primary {
+                width: 100%;
+                padding: 14px;
+                background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+                color: white;
+                border: none;
+                border-radius: 10px;
+                font-weight: 600;
+                font-size: 15px;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                box-shadow: 0 4px 15px rgba(2, 132, 199, 0.4);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+            }
+
+            .btn-primary:hover {
+                background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
+                box-shadow: 0 6px 20px rgba(2, 132, 199, 0.6);
+                transform: translateY(-1px);
+            }
+
+            .btn-copy {
+                background: transparent;
+                border: 1px solid #334155;
+                color: #94a3b8;
+                padding: 10px;
+                border-radius: 10px;
+                font-size: 13px;
+                font-weight: 600;
+                cursor: pointer;
+                width: 100%;
+                margin-top: 15px;
+                transition: all 0.2s ease;
+            }
+
+            .btn-copy:hover {
+                background: rgba(255, 255, 255, 0.05);
+                color: #ffffff;
+                border-color: #64748b;
+            }
+
+            #retorno {
+                margin-top: 20px;
+                background: rgba(3, 7, 18, 0.8);
+                border: 1px solid #1e293b;
+                border-radius: 10px;
+                padding: 15px;
+                font-family: 'Courier New', monospace;
+                font-size: 13px;
+                color: #34d399;
+                text-align: left;
+                display: none;
+                max-height: 150px;
+                overflow-y: auto;
+            }
+
+            input#textoParaCopiar { display: none; }
         </style>
     </head>
     <body>
-        <div class="card">
-            <h1>Checklist Loja do Ponto</h1>
-            <div class="status-container">
-                <div class="status">🟢 API Online e Ativa</div>
-            </div>
-            <p>Painel de controle com todos os fluxos de automação integrados (Control iD, Elite 40 e Facial / Modo Ponto).</p>
-            
-            <div class="section">
-                <label for="ipsInput">Digite os IPs dos Relógios (separados por vírgula):</label>
-                <input type="text" id="ipsInput" placeholder="Ex: 192.168.1.50, 192.168.1.51">
-                <button onclick="dispararAutomacao()">🚀 Disparar Automação Automática</button>
-                <div id="retorno"></div>
+
+        <div class="container">
+            <!-- Logotipo em CSS baseado fielmente na sua imagem -->
+            <div class="logo-wrapper">
+                <div class="logo-icon">
+                    <!-- Ícone de Impressão Digital (Biometria) -->
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12c0 2.21.72 4.26 1.93 5.93l1.5-1.3C4.44 15.24 4 13.68 4 12c0-4.41 3.59-8 8-8s8 3.59 8 8c0 1.68-.44 3.24-1.43 4.63l1.5 1.3C21.28 16.26 22 14.21 22 12c0-5.52-4.48-10-10-10zm0 4c-3.31 0-6 2.69-6 6 0 1.16.34 2.24.93 3.15l1.45-1.22C8.16 13.39 8 12.72 8 12c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .72-.16 1.39-.38 1.93l1.45 1.22c.59-.91.93-1.99.93-3.15 0-3.31-2.69-6-6-6zm0 4c-1.1 0-2 .9-2 2 0 .39.11.75.3 1.06l1.46-1.23c-.05-.2-.06-.41-.06-.63 0-.66.54-1.2 1.2-1.2s1.2.54 1.2 1.2c0 .22-.01.43-.06.63l1.46 1.23c.19-.31.3-.67.3-1.06 0-1.1-.9-2-2-2z"/>
+                    </svg>
+                </div>
+                <div class="logo-text">
+                    <h1>PONTO</h1>
+                    <span>TECNOLOGIA</span>
+                </div>
             </div>
 
-            <div class="section" style="text-align: center;">
-                <input type="text" id="textoParaCopiar" value="https://checklistpontotecnologia.onrender.com" style="display:none;">
-                <button onclick="copiarLink()" class="btn-copy">📋 Copiar Link do Site</button>
+            <div class="status-badge">
+                <div class="status-dot"></div>
+                Sistema Online e Operacional
             </div>
+
+            <div class="form-group">
+                <label for="ipsInput">Endereços IP dos Relógios de Ponto:</label>
+                <input type="text" id="ipsInput" placeholder="Ex: 192.168.1.50, 192.168.1.51">
+            </div>
+
+            <button class="btn-primary" onclick="dispararAutomacao()">
+                ⚡ Executar Checklist Automático
+            </button>
+
+            <div id="retorno"></div>
+
+            <input type="text" id="textoParaCopiar" value="https://checklistpontotecnologia.onrender.com">
+            <button class="btn-copy" onclick="copiarLink()">
+                📋 Copiar Link de Acesso
+            </button>
         </div>
 
         <script>
         function dispararAutomacao() {
             var ipsStr = document.getElementById("ipsInput").value;
             if(!ipsStr) {
-                alert("Por favor, digite pelo menos um IP!");
+                alert("Insira pelo menos um IP para iniciar a automação.");
                 return;
             }
             var ipsArray = ipsStr.split(',').map(item => item.trim()).filter(item => item.length > 0);
             
             var retornoDiv = document.getElementById("retorno");
             retornoDiv.style.display = "block";
-            retornoDiv.innerText = "⏳ Enviando requisição para os equipamentos...";
+            retornoDiv.innerText = "⏳ Conectando aos dispositivos e analisando modelos...";
 
             fetch('/api/automacao/auto', {
                 method: 'POST',
@@ -449,19 +596,17 @@ def read_root():
             })
             .then(response => response.json())
             .then(data => {
-                retornoDiv.innerText = "✅ Sucesso!\n" + JSON.stringify(data, null, 2);
+                retornoDiv.innerText = "✅ Processo Iniciado com Sucesso!\n" + JSON.stringify(data, null, 2);
             })
             .catch(error => {
-                retornoDiv.innerText = "❌ Erro ao disparar: " + error;
+                retornoDiv.innerText = "❌ Erro ao processar requisição: " + error;
             });
         }
 
         function copiarLink() {
             var copyText = document.getElementById("textoParaCopiar");
-            copyText.style.display = "block";
             copyText.select();
             document.execCommand("copy");
-            copyText.style.display = "none";
             alert("Link copiado para a área de transferência!");
         }
         </script>
